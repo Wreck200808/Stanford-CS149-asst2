@@ -1,4 +1,5 @@
 #include "tasksys.h"
+#include <iostream>
 
 
 IRunnable::~IRunnable() {}
@@ -165,28 +166,28 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
 void TaskSystemParallelThreadPoolSleeping::threadFunc(){
     while (true) {
         std::unique_lock<std::mutex> lock(*mutex);
-        if (readyQueue.empty() && !shutdown) {
+        while (readyQueue.empty() && !shutdown) {
             newtask_cv->wait(lock);
         }
         if (shutdown) {
-            lock.unlock();
             return;
         }
         if (readyQueue.empty()) {
-            lock.unlock();
             continue;
         }
-        Task* task = readyQueue.front();
+        Task* task = readyQueue.top();
         int task_num = task->task_num++;
-        if (task->task_num == task->num_total_tasks){
+        bool last_task = task->task_num == task->num_total_tasks;
+        if (last_task){
             readyQueue.pop();
         }
         lock.unlock();
         task->runnable->runTask(task_num, task->num_total_tasks);
-        if (task->task_num == task->num_total_tasks) {
-            lock.lock();
+        lock.lock();
+        task->task_finished++;
+        if (task->task_finished == task->num_total_tasks) {
             completedTasks.insert(task->task_id);
-            for (TaskID dep : reverseDependencies[task->task_id]) {
+            for (TaskID dep : task->reverseDeps) {
                 unresolvedDependenciesCount[dep]--;
                 if (unresolvedDependenciesCount[dep] == 0) {
                     readyQueue.push(waitingTasks[dep]);
@@ -197,7 +198,6 @@ void TaskSystemParallelThreadPoolSleeping::threadFunc(){
             if (completedTasks.size() == nextTaskID) {
                 finishtask_cv->notify_all();
             }
-            lock.unlock();
             delete task;
         }
     }
@@ -227,11 +227,12 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     for (TaskID dep : deps) {
         if (completedTasks.find(dep) == completedTasks.end()) {
             unresolvedDependencies++;
-            reverseDependencies[dep].push_back(nextTaskID);
+            task->reverseDeps.push_back(dep);
         }
     }
     if (unresolvedDependencies == 0) {
         readyQueue.push(task);
+        newtask_cv->notify_all();
     } else {
         unresolvedDependenciesCount[nextTaskID] = unresolvedDependencies;
         waitingTasks[nextTaskID] = task;

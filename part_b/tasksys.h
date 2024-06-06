@@ -64,20 +64,19 @@ public:
     void sync();
 };
 
-struct Task
-{
-public:
-    Task(IRunnable *runnable, int num_total_tasks, int task_id, std::vector<TaskID> deps) : runnable(runnable), num_total_tasks(num_total_tasks), task_id(task_id), deps(deps), task_num(0) {}
+struct Task{
+    Task(IRunnable *runnable, int num_total_tasks, int task_id, std::vector<TaskID> deps) : runnable(runnable), num_total_tasks(num_total_tasks), task_id(task_id), deps(deps), task_num(0), task_finished(0) {}
     ~Task(){};
     IRunnable *runnable;
     int num_total_tasks;
     int task_id;
     std::vector<TaskID> deps;
+    std::vector<TaskID> reverseDeps;
     int task_num;
-    bool operator<(const Task &other) const
+    int task_finished;
+    bool operator<(const Task &t) const
     {
-        // compare the largest dep task_id of the two tasks
-        return *std::max_element(deps.begin(), deps.end()) < *std::max_element(other.deps.begin(), other.deps.end());
+        return reverseDeps.size() < t.reverseDeps.size();
     }
 };
 
@@ -108,8 +107,7 @@ private:
     std::vector<std::thread> threads;
     std::unordered_map<TaskID, Task *> waitingTasks;                     // Tasks that are waiting for dependencies
     std::unordered_map<TaskID, int> unresolvedDependenciesCount;         // Count of unresolved dependencies per task
-    std::unordered_map<TaskID, std::vector<TaskID>> reverseDependencies; // Tasks that depend on a given task
-    std::queue<Task *> readyQueue;
+    std::priority_queue<Task *> readyQueue;
     std::condition_variable *newtask_cv;
     std::condition_variable *finishtask_cv;
     std::unordered_set<TaskID> completedTasks;
